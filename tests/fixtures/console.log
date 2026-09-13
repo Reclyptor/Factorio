@@ -1,0 +1,9 @@
+   1.315 Info UDPSocket.cpp:38: Opening socket at (IP ADDR:({0.0.0.0:34197}))
+   1.590 Info ServerMultiplayerManager.cpp:808: updateTick(12874) changing state from(CreatingGame) to(InGame)
+2026-09-12 21:28:32 [JOIN] Alice joined the game
+2026-09-12 21:28:40 [CHAT] Alice: hello
+2026-09-12 21:29:01 [JOIN] Bob Builder joined the game
+  90.001 Info RemoteCommandProcessor.cpp:245: New RCON connection from IP ADDR:({127.0.0.1:35364})
+2026-09-12 21:40:01 [LEAVE] Alice left the game
+2026-09-12 21:41:15 [LEAVE] Bob Builder left the game (connection timed out)
+2026-09-12 21:42:00 [CHAT] <server>: --help

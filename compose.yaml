@@ -1,0 +1,27 @@
+# Quick start. Copy, set the passwords, `docker compose up -d`.
+# Full configuration: README.md
+services:
+  factorio:
+    image: ghcr.io/reclyptor/factorio:latest
+    container_name: factorio
+    restart: unless-stopped
+    ports:
+      - "34197:34197/udp"
+    environment:
+      TZ: America/Chicago
+      SERVER_NAME: "My Factory"        # the in-game name and the name notifications use
+      SERVER_DESCRIPTION: "Space Age, friends only"
+      ADMINS: "your-factorio-username"
+      WHITELIST: "your-factorio-username,a-friend"
+      GAME_PASSWORD: "change-me"
+      RCON_PASSWORD: "change-me-too"
+      DISCORD_WEBHOOK_URL: ""
+      BACKUP_CRON: "0 4 * * *"
+      BACKUP_RETAIN_DAYS: "14"
+      UPDATE_CRON: "0 * * * *"
+      UPDATE_WARN_MINUTES: "15"
+    volumes:
+      - ./data:/data
+      - ./backups:/backups
+    # The image runs as uid/gid 845. Create the directories with that owner:
+    #   mkdir -p data backups && sudo chown -R 845:845 data backups

@@ -1,0 +1,85 @@
+# SPEC: Factorio — a self-contained dedicated server image
+
+**Status:** IMPLEMENTED — v2 (GameOps 1.0.0).
+**Drafted:** 2026-09-12
+**Deliverable:** `ghcr.io/reclyptor/factorio`, built on [GameOps](https://github.com/Reclyptor/GameOps).
+
+---
+
+## 1. Purpose
+
+Run a Factorio headless server (with Space Age) as a single container that looks after itself:
+scheduled backups with retention, automatic updates that warn players in-game and relaunch without
+the container exiting, Discord notifications for lifecycle and player events, a whitelist and admin
+list rendered from configuration, and RCON that is actually configured from the environment.
+
+Everything operational comes from the GameOps toolkit; this repo contributes only what is
+Factorio-specific.
+
+### Non-goals
+- **Not a mod manager UI.** Mods are a directory; `MODS_UPDATE=true` refreshes what is
+  already there from the mod portal (needs a factorio.com username and token).
+- **Not arm64.** Factorio ships x86-64 only; emulation is out of scope.
+- **Not the experimental branch by default.** `CHANNEL=experimental` is opt-in.
+
+---
+
+## 2. Hard constraints
+
+| # | Constraint |
+|---|---|
+| F1 | **Never start as root.** uid/gid `845:845` (`factorio`), so an existing data volume with that ownership carries over untouched. |
+| F2 | **Environment is the source of truth for server settings.** `server-settings.json`, the admin list and the whitelist are rendered on every boot. In-game `/promote` and `/whitelist` edits do not survive a restart; that is deliberate and documented. The ban list is the exception — it is the game's own runtime state and is never overwritten. |
+| F3 | **Saves are never generated over an existing one** and `.tmp.zip` leftovers from a forced exit are removed before start. |
+| F4 | **Updates come only from factorio.com** (`/api/latest-releases` for the check, `/get-download/<v>/headless/linux64` for the tarball) and are integrity-checked with `xz -t` before the installation is touched. |
+| F5 | **The health check never touches RCON.** Factorio logs every RCON connection, so a probe over RCON would write thousands of lines a day. Health here is process + ready flag; the player port is UDP and is not probed. |
+
+---
+
+## 3. The image
+
+`debian:trixie-slim`, the headless tarball pinned by version and SHA-256 at build, extracted to
+`/opt/factorio` and
+owned by `factorio` so a runtime update can replace it in place. `config.ini` points `write-data` at
+`DATA_DIR`, so saves, mods, config and script output all live on the volume under the same
+subdirectory names Factorio itself uses.
+
+| Path | Contents |
+|---|---|
+| `/opt/factorio` | The game (`GAME_DIR`), replaced in place by updates |
+| `/data` | `saves/ mods/ config/ scenarios/ script-output/` (`DATA_DIR`) |
+| `/backups` | Archives of `saves/ config/ mods/` |
+| `/opt/gameops` | The toolkit |
+| `/opt/game` | This adapter |
+
+## 4. The adapter
+
+| Contract function | Factorio implementation |
+|---|---|
+| `game_install` | Create the data layout, default `map-gen-settings.json`/`map-settings.json` from the game's examples, an empty ban list, remove `*.tmp.zip`; create the first save if none exists. |
+| `game_version` | `factorio --version`. |
+| `game_update_available` | `/api/latest-releases` → `.<channel>.headless`, compared with the installed version. |
+| `game_update_apply` | Download, `xz -t`, replace the contents of `/opt/factorio`, rewrite `config.ini`. |
+| `game_start_cmd` | The headless command line: port, settings, ban/admin lists, whitelist (only when configured), RCON from env, mod directory, `--start-server-load-latest` or a named save. |
+| `game_ready` | RCON port accepting connections — Factorio binds it only after the map is loaded. |
+| `game_save` / `game_broadcast` / `game_players` | RCON `/server-save`, plain text (server chat), `/players online count`. |
+| `game_shutdown` | RCON `/server-save`, then `SIGTERM` (Factorio saves on `SIGTERM` as well). |
+| `game_events` | Console stream on stdout: `[JOIN] name joined the game` / `[LEAVE] name left the game`. |
+| `game_backup_paths` | `saves config mods`. |
+
+Before each boot the adapter renders `server-settings.json` from the environment (the shared generic names: `SERVER_NAME`, `MAX_PLAYERS`, `ADMINS`, …) with
+the toolkit's JSON helpers over a template, and `server-adminlist.json` / `server-whitelist.json` from comma-separated
+lists. `DLC_SPACE_AGE` toggles the three DLC mods in `mod-list.json`.
+
+## 5. Verification
+
+- `tests/*.bats` run inside the built image (so against the real toolkit and adapter): settings
+  rendering, list parsing, version and update-target parsing from fixtures, DLC toggling, and the
+  JOIN/LEAVE parser against fixture lines.
+- `tests/smoke.sh`: the install directory is a volume seeded with an older release
+  (`SMOKE_OLD_VERSION`, default 2.0.72) through the adapter's own installer, so the first thing
+  tested is the real update path: the map is generated by the old release, `gameops update`
+  downloads the current stable from factorio.com, the server stops, the installation is replaced,
+  the server relaunches in the same container and loads the old save. Then: `/version` over RCON,
+  a backup (verified, two archives listed), the update check reporting current, and `SIGTERM`
+  saving the world on the way down.
